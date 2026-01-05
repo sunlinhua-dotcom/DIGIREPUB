@@ -125,10 +125,17 @@ function pollProgress() {
                 }
             }
 
+            // Show/Hide Retry Button logic
+            if (data.has_failed) {
+                document.getElementById('retryBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('retryBtn').classList.add('hidden');
+            }
+
             // Check Status
             if (data.status === 'done') {
                 clearInterval(pollInterval);
-                finishTask(data.filename);
+                finishTask(data.filename, data.has_failed);
             } else if (data.status === 'error') {
                 clearInterval(pollInterval);
                 document.getElementById('statusText').textContent = "出错";
@@ -159,7 +166,26 @@ function updateLog(msg) {
     logBox.scrollTop = logBox.scrollHeight;
 }
 
-function finishTask(filename) {
+function retryFailed() {
+    if (!currentTaskId) return;
+
+    // UI update
+    document.getElementById('retryBtn').disabled = true;
+    document.querySelector('#retryBtn .btn-text').textContent = '补录中...';
+    document.getElementById('downloadActionArea').classList.add('hidden'); // Hide download link during retry
+    document.getElementById('controlArea').classList.remove('hidden'); // Show pause/resume
+
+    // Resume polling just in case
+    if (!pollInterval) pollInterval = setInterval(pollProgress, 1000);
+
+    fetch(`/api/retry_failed/${currentTaskId}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            console.log("Retry started");
+        });
+}
+
+function finishTask(filename, hasFailed) {
     document.querySelector('#downloadBtn .btn-text').textContent = '完成';
     document.getElementById('downloadBtn').style.background = '#10b981';
     document.getElementById('controlArea').classList.add('hidden');
@@ -168,9 +194,22 @@ function finishTask(filename) {
     const linkArea = document.getElementById('downloadActionArea');
     const linkBtn = document.getElementById('finalDownloadLink');
     linkBtn.href = `/api/download/${filename}`;
+    // Text is already set in HTML, no need to override unless needed
+    // linkBtn.querySelector('.btn-text').textContent = '保存 TXT'; 
     linkArea.classList.remove('hidden');
 
-    updateLog("Task Completed Successfully!");
+    // Grid layout adjustments
+    linkArea.style.display = 'flex';
+
+    if (hasFailed) {
+        document.getElementById('retryBtn').disabled = false;
+        document.getElementById('retryBtn').classList.remove('hidden');
+        document.querySelector('#retryBtn span:last-child').textContent = '补录漏章';
+    } else {
+        document.getElementById('retryBtn').classList.add('hidden');
+    }
+
+    updateLog("Task Completed!");
 }
 
 function resetBtn() {

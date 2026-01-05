@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Universal Novel Downloader</title>
+    <title>BRIGHT305 万能小说下载</title>
     <!-- PWA Settings -->
     <link rel="manifest" href="/static/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -30,8 +30,11 @@
 
     <div class="container">
         <header>
-            <div class="logo">ANTIGRAVITY<span>DL</span></div>
-            <p class="subtitle">通用全本小说下载器</p>
+            <div class="header">
+                <h1>BRIGHT305</h1>
+                <p class="subtitle">万能小说下载</p>
+                <p class="instruction-text">复制黏贴你能打开的在线小说的目录页的链接</p>
+            </div>
         </header>
 
         <div class="card glass-panel">
@@ -65,6 +68,24 @@
                         继续
                     </button>
                 </div>
+
+                <!-- New Action Area (Hidden by default) -->
+                <div class="action-grid hidden" id="downloadActionArea">
+                    <a id="finalDownloadLink" class="action-btn primary-action" download>
+                        <span class="icon">📥</span>
+                        <span>保存 TXT</span>
+                    </a>
+
+                    <button id="retryBtn" class="action-btn warning-action hidden" onclick="retryFailed()">
+                        <span class="icon">🩹</span>
+                        <span>补录漏章</span>
+                    </button>
+
+                    <button class="action-btn secondary-action" onclick="resetBtn()">
+                        <span class="icon">🔄</span>
+                        <span>下新的</span>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -77,34 +98,11 @@
                 </div>
                 <span class="terminal-title">Console Output</span>
             </div>
-            <div class="action-area hidden" id="downloadActionArea">
-                <a id="finalDownloadLink" class="btn btn-success" download>
-                    <span class="icon">📥</span>
-                    <span class="btn-text">保存到文件</span>
-                </a>
-                <button class="btn btn-secondary" onclick="resetBtn()">
-                    <span class="icon">🔄</span>
-                    <span class="btn-text">下新的</span>
-                </button>
-            </div>
             <div class="terminal-body" id="logOutput">
                 <div class="log-line">Waiting for task...</div>
             </div>
         </div>
 
-        <div id="downloadActionArea" class="hidden">
-            <a href="#" id="finalDownloadLink" class="download-btn-large" target="_blank">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 16L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round" />
-                    <path d="M8 12L12 16L16 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round" />
-                    <path d="M4 20H20" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round" />
-                </svg>
-                保存 TXT 文件
-            </a>
-        </div>
 
     </div>
 

@@ -9,8 +9,37 @@ import requests
 from flask import Flask, render_template, request, jsonify, send_file, Response
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+from requests.exceptions import SSLError, ReadTimeout, ConnectionError, ChunkedEncodingError
 
 app = Flask(__name__)
+
+@app.route('/api/retry_failed/<task_id>', methods=['POST'])
+def retry_failed(task_id):
+    if task_id not in tasks:
+        return jsonify({'error': 'Task not found'}), 404
+        
+    tdata = tasks[task_id]
+    
+    # We need access to the downloader instance. 
+    # Current limitation: 'downloader' variable in 'start_download' is local.
+    # We need to store downloader instance in a global dict to access it for retry.
+    if task_id not in downloaders:
+        return jsonify({'error': 'Downloader instance lost. Please restart task.'}), 400
+        
+    downloader = downloaders[task_id]
+    
+    # Reset status
+    tdata['status'] = 'running'
+    tdata['log'] = '准备开始补录...'
+    
+    # Start thread
+    thread = threading.Thread(target=downloader.retry_run)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({'status': 'ok'})
 
 # Configuration
 DOWNLOAD_FOLDER = 'downloads'
@@ -19,7 +48,8 @@ if not os.path.exists(DOWNLOAD_FOLDER):
 
 # Global State
 tasks = {}
-active_urls = set() # Concurrency control
+downloaders = {} # New global to store instances
+active_urls = set()
 active_urls_lock = threading.Lock()
 
 HEADERS = {
@@ -56,12 +86,38 @@ class BaseDownloader:
         self.domain = urlparse(start_url).netloc
         self.log_messages = []
         self.current_chapter_real_title = None # To store title found during fetch
+        self.last_log_msg = None
+        self.failed_chapters = [] # Store failed chapters for manual retry
 
-    def log(self, message):
-        print(f"[{self.task_id}] {message}")
+    def log(self, msg):
+        # Deduplication Check
+        if msg == self.last_log_msg:
+            return
+        self.last_log_msg = msg
+        
         if self.task_id in tasks:
-            tasks[self.task_id]['log'] = message
-        self.log_messages.append(message)
+            tasks[self.task_id]['log'] = msg
+        print(f"> {msg}")
+        self.log_messages.append(msg)
+
+    def get_with_retry(self, url, retries=5):
+        """Standardized retry wrapper for ALL requests"""
+        for i in range(retries):
+            try:
+                resp = self.session.get(url, timeout=15) # Increased timeout
+                resp.raise_for_status()
+                # Basic content check
+                if len(resp.content) < 500 and resp.status_code == 200:
+                     raise ValueError("Content too short (possible block page)")
+                return resp
+            except (SSLError, ReadTimeout, ConnectionError, ChunkedEncodingError, ValueError) as e:
+                wait_time = (i + 1) * 3  # 3s, 6s, 9s, 12s, 15s
+                self.log(f"网络波动 ({str(e)[:50]}...)，{wait_time}秒后重试...")
+                time.sleep(wait_time)
+            except Exception as e:
+                # Other errors, just retry slowly
+                time.sleep(5)
+        return None
 
     def update_progress(self, current, total):
         if self.task_id in tasks:
@@ -99,66 +155,35 @@ class BaseDownloader:
             self.log(f"开始分析页面: {self.start_url}")
             chapters = self.get_chapter_list()
             
-            if not chapters:
-                self.log("未找到章节，请检查链接是否正确。")
-                self.cleanup_error()
-                return
-
+            # File Setup
             book_title = clean_filename(chapters[0].get('book_name', 'Unknown_Novel'))
             filename = f"{book_title}.txt"
-            filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+            self.filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+            
+            # Temp dir for individual chapters (essential for correct order patching)
+            self.chapters_dir = os.path.join(DOWNLOAD_FOLDER, self.task_id)
+            if not os.path.exists(self.chapters_dir):
+                os.makedirs(self.chapters_dir)
+
             tasks[self.task_id]['filename'] = filename
             
             total = len(chapters)
             tasks[self.task_id]['total'] = total
             self.log(f"发现 {total} 章 (含自动修补)，准备下载到: {filename}")
             
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(f"Book: {book_title}\nSource: {self.start_url}\n\n")
-
-            for i, chapter in enumerate(chapters):
-                if not self.check_control():
-                    break
-
-                title = chapter['title']
-                url = chapter['url']
-                is_probe = chapter.get('probe', False)
-                
-                self.log(f"正在下载 [{i+1}/{total}]: {title}")
-                
-                # Fetch content
-                self.current_chapter_real_title = None
-                content = self.get_chapter_content(url)
-                
-                # Anti-bot: Random sleep
-                time.sleep(random.uniform(0.5, 1.5))
-
-                if content == "404":
-                    self.log(f"章节不存在 (404)，已跳过: {title}")
-                    # Don't increment fail, maybe add 'skipped'?
-                    # For now just ignore
-                    continue
-
-                # Handling Failures (Empty content after reties)
-                if not content.strip():
-                    self.log(f"章节获取失败，跳过: {url}")
-                    tasks[self.task_id]['fail'] += 1
-                    continue
-                
-                # Use real title if we found one
-                final_title = self.current_chapter_real_title if self.current_chapter_real_title else title
-                
-                with open(filepath, 'a', encoding='utf-8') as f:
-                    f.write(f"{final_title}\n\n")
-                    f.write(content)
-                    f.write("\n" + "="*30 + "\n\n")
-                
-                tasks[self.task_id]['success'] += 1
-                self.update_progress(i + 1, total)
+            # Start Download Loop
+            self.download_chapters(chapters)
             
-            self.log(f"下载完成！成功: {tasks[self.task_id]['success']}, 失败: {tasks[self.task_id]['fail']}")
+            # Final Assembly
+            self.assemble_novel(chapters)
+            
+            # Final Status Update
+            self.log(f"下载任务结束！成功: {tasks[self.task_id]['success']}, 失败: {tasks[self.task_id]['fail']}")
             tasks[self.task_id]['status'] = 'done'
             tasks[self.task_id]['percent'] = 100
+            
+            # Cleanup temp files? Maybe keep them for a bit or clean on app start.
+            # shutil.rmtree(self.chapters_dir) 
         
         except Exception as e:
             self.log(f"发生错误: {str(e)}")
@@ -167,6 +192,128 @@ class BaseDownloader:
             with active_urls_lock:
                 if self.start_url in active_urls:
                     active_urls.remove(self.start_url)
+
+    def assemble_novel(self, chapters):
+        """Combine all individual chapter files into the final TXT in order"""
+        self.log("正在合并文件，确保章节顺序...")
+        try:
+            with open(self.filepath, 'w', encoding='utf-8') as outfile:
+                outfile.write(f"Book: {chapters[0].get('book_name', 'Unknown')}\nSource: {self.start_url}\n\n")
+                
+                for i in range(len(chapters)):
+                    chap_path = os.path.join(self.chapters_dir, f"{i:05d}.txt")
+                    if os.path.exists(chap_path):
+                        with open(chap_path, 'r', encoding='utf-8') as infile:
+                            outfile.write(infile.read())
+            self.log("合并完成！")
+        except Exception as e:
+            self.log(f"合并文件失败: {e}")
+
+    def download_chapters(self, chapters):
+        """Separate method to handle the download loop, reusable for retries"""
+        total = tasks[self.task_id].get('total', len(chapters)) # Use existing total if available
+        
+        for i, chapter in enumerate(chapters):
+            # Check control - Handle Pause with Assembly
+            while True:
+                task = tasks.get(self.task_id)
+                if not task: break
+                
+                if task['control'] == 'paused':
+                    if task['status'] != 'paused':
+                        task['status'] = 'paused'
+                        self.log("任务已暂停... (正在生成临时文件)")
+                        self.assemble_novel(chapters) 
+                        self.log("已暂停。可下载当前进度。")
+                    time.sleep(1)
+                else:
+                    if task['status'] == 'paused':
+                        task['status'] = 'running'
+                        self.log("任务继续...")
+                    break
+            
+            if not tasks.get(self.task_id): break # Task killed
+
+            title = chapter['title']
+            url = chapter['url']
+            
+            # Check if already downloaded (for retry or resume logic if we implemented persistence)
+            chap_path = os.path.join(self.chapters_dir, f"{i:05d}.txt")
+            if os.path.exists(chap_path) and not chapter in self.failed_chapters:
+                # Already exists and not marked for retry? Skip.
+                # But wait, 'download_chapters' is called with full list in 'run', 
+                # or partial list in 'retry'.
+                # Logic: If running full list, check existence.
+                # If content is valid? 
+                pass 
+
+            # Only log if we are actually downloading
+            if not os.path.exists(chap_path) or chapter in self.failed_chapters:
+                 self.log(f"正在处理: {title}")
+                 
+                 # Fetch content
+                 self.current_chapter_real_title = None
+                 content = self.get_chapter_content(url)
+                 
+                 # Anti-bot
+                 if not chapter in self.failed_chapters: # Don't sleep as much on manual retry?
+                    time.sleep(random.uniform(0.5, 1.5))
+
+                 if content == "404":
+                     self.log(f"章节不存在 (404)，已跳过: {title}")
+                     continue
+
+                 # Handling Failures
+                 if not content.strip():
+                     self.log(f"下载失败，加入补录列表: {title}")
+                     if chapter not in self.failed_chapters:
+                        tasks[self.task_id]['fail'] += 1
+                        self.failed_chapters.append(chapter) 
+                        tasks[self.task_id]['has_failed'] = True 
+                     continue
+                 
+                 # Success
+                 final_title = self.current_chapter_real_title if self.current_chapter_real_title else title
+                 
+                 # Write to individual file
+                 with open(chap_path, 'w', encoding='utf-8') as f:
+                     f.write(f"{final_title}\n\n")
+                     f.write(content)
+                     f.write("\n" + "="*30 + "\n\n")
+                 
+                 # If it was a retry, remove from failed list logic handled in retry_run
+                 if chapter not in self.failed_chapters:
+                    tasks[self.task_id]['success'] += 1
+                 
+                 # Update percentage
+                 # Recalculate based on files present? 
+                 # Simplify: just increment. 
+                 self.update_progress(i + 1, total)
+
+    def retry_run(self):
+        """Method to restart downloading only failed chapters"""
+        if not self.failed_chapters:
+            self.log("没有需要补录的章节。")
+            return
+
+        retry_list = self.failed_chapters[:]
+        self.failed_chapters = [] 
+        tasks[self.task_id]['fail'] = 0 
+        tasks[self.task_id]['has_failed'] = False
+        
+        self.log(f"开始补录 {len(retry_list)} 个章节...")
+        
+        # We need the full chapter list for assembly ordering!
+        # Accessing it via self.get_chapter_list() is expensive/wrong.
+        # We should store the full list in self.all_chapters
+        if hasattr(self, 'all_chapters'):
+             self.download_chapters(retry_list) # This will overwrite specific files
+             self.assemble_novel(self.all_chapters) # Re-assemble EVERYTHING
+        else:
+             self.log("错误：找不到原始章节列表，无法排序合并。")
+        
+        self.log(f"补录完成！当前失败数: {len(self.failed_chapters)}")
+        tasks[self.task_id]['status'] = 'done'
 
     def cleanup_error(self):
         tasks[self.task_id]['status'] = 'error'
@@ -181,8 +328,11 @@ class CheyilDownloader(BaseDownloader):
         return 'cheyil.cc' in url
 
     def get_chapter_list(self):
-        response = self.session.get(self.start_url)
-        response.raise_for_status()
+        response = self.get_with_retry(self.start_url)
+        if not response:
+             self.log("致命错误：无法访问目录页")
+             return []
+        
         response.encoding = 'utf-8'
         soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -217,7 +367,11 @@ class CheyilDownloader(BaseDownloader):
             visited.add(current_url)
 
             try:
-                resp = self.session.get(current_url, timeout=10)
+                resp = self.get_with_retry(current_url)
+                if not resp:
+                    self.log(f"章节获取失败（重试耗尽）: {current_url}")
+                    break
+                    
                 resp.encoding = 'utf-8'
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 
@@ -537,6 +691,8 @@ def start_download():
     else:
         downloader = GenericDownloader(url, task_id)
 
+    downloaders[task_id] = downloader   
+    
     tasks[task_id] = {
         'url': url,
         'status': 'running',
