@@ -130,12 +130,22 @@ class BaseDownloader:
                 self.current_chapter_real_title = None
                 content = self.get_chapter_content(url)
                 
-                # Handling Probes or Failures
+                # Anti-bot: Random sleep
+                time.sleep(random.uniform(0.5, 1.5))
+
+                if content == "404":
+                    self.log(f"章节不存在 (404)，已跳过: {title}")
+                    # Don't increment fail, maybe add 'skipped'?
+                    # For now just ignore
+                    continue
+
+                # Handling Failures (Empty content after reties)
                 if not content.strip():
-                    self.log(f"章节无效或为空，跳过: {url}")
+                    self.log(f"章节获取失败，跳过: {url}")
+                    tasks[self.task_id]['fail'] += 1
                     continue
                 
-                # Use real title if we found one (especially for probes)
+                # Use real title if we found one
                 final_title = self.current_chapter_real_title if self.current_chapter_real_title else title
                 
                 with open(filepath, 'a', encoding='utf-8') as f:
@@ -143,9 +153,10 @@ class BaseDownloader:
                     f.write(content)
                     f.write("\n" + "="*30 + "\n\n")
                 
+                tasks[self.task_id]['success'] += 1
                 self.update_progress(i + 1, total)
             
-            self.log("下载完成！")
+            self.log(f"下载完成！成功: {tasks[self.task_id]['success']}, 失败: {tasks[self.task_id]['fail']}")
             tasks[self.task_id]['status'] = 'done'
             tasks[self.task_id]['percent'] = 100
         
@@ -348,56 +359,80 @@ class QuanbenDownloader(BaseDownloader):
             if current_url in visited: break
             visited.add(current_url)
 
-            try:
-                for attempt in range(3):
-                    try:
-                        resp = self.session.get(current_url, timeout=10)
-                        if resp.status_code == 200: break
-                        if resp.status_code == 404: 
-                            self.log(f"页面不存在 (404): {current_url}")
-                            return "" # Stop if 404
-                    except:
-                        time.sleep(1)
-                else: 
-                    self.log(f"加载超时: {current_url}")
-                    return ""
+            # Smart Retry with Exponential Backoff
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    resp = self.session.get(current_url, timeout=15)
+                    
+                    # 404 is normal for gaps, don't retry, just return empty
+                    if resp.status_code == 404:
+                        return "404" 
+                    
+                    # Blocked/Rate Limited?
+                    if resp.status_code in [403, 429, 500, 502, 503]:
+                        wait_time = (attempt + 1) * 5 # 5s, 10s, 15s...
+                        self.log(f"服务器繁忙 ({resp.status_code})，等待 {wait_time}秒后重试...")
+                        time.sleep(wait_time)
+                        continue
 
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                
-                # Update title if it's the first page
-                if current_url == url:
-                    h1 = soup.find('h1')
-                    if h1:
-                        self.current_chapter_real_title = h1.get_text(strip=True)
+                    if resp.status_code == 200:
+                        # Success? Let's check invalid content
+                        soup = BeautifulSoup(resp.text, 'html.parser')
+                        content_div = soup.find('div', id='content')
+                        
+                        if not content_div:
+                            # Maybe generic?
+                            if len(resp.text) < 500: # Suspiciously short page
+                                self.log(f"内容疑似无效，重试中... ({attempt+1}/{max_retries})")
+                                time.sleep(2)
+                                continue
+                            else:
+                                # Generic parsing logic could go here, but for Quanben specific:
+                                pass
+                        break # Valid 200 OK
+                except Exception as e:
+                    wait_time = (attempt + 1) * 3
+                    self.log(f"网络波动 ({e})，{wait_time}秒后重试...")
+                    time.sleep(wait_time)
+            
+            else: # Loop finished without break = Failed all retries
+                self.log(f"放弃章节: {current_url} (多次重试失败)")
+                return "" # Real Fail
 
-                content_div = soup.find('div', id='content')
-                if content_div:
-                    for s in content_div(['script', 'style']):
-                        s.decompose()
-                    text_buffer += content_div.get_text("\n", strip=True) + "\n"
-                
-                # Check for same-chapter pagination
-                next_page = None
-                for a in soup.find_all('a'):
-                    if "下一页" in a.get_text():
-                        next_page = a
-                        break
-                
-                if next_page:
-                    href = next_page.get('href')
-                    if href and href != 'javascript:void(0)':
-                        full_next = urljoin(current_url, href)
-                        if base_id and f"{base_id}_" in full_next:
-                             current_url = full_next
-                        else:
-                             current_url = None
+            # ... (Parsing logic remains similar)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            if current_url == url:
+                h1 = soup.find('h1')
+                if h1: self.current_chapter_real_title = h1.get_text(strip=True)
+
+            content_div = soup.find('div', id='content')
+            if content_div:
+                for s in content_div(['script', 'style']):
+                    s.decompose()
+                text_buffer += content_div.get_text("\n", strip=True) + "\n"
+            
+            # Pagination Logic
+            next_page = None
+            for a in soup.find_all('a'):
+                if "下一页" in a.get_text():
+                    next_page = a
+                    break
+            
+            if next_page:
+                href = next_page.get('href')
+                if href and href != 'javascript:void(0)':
+                    full_next = urljoin(current_url, href)
+                    if base_id and f"{base_id}_" in full_next:
+                            current_url = full_next
                     else:
-                         current_url = None
+                            current_url = None
                 else:
-                    current_url = None
-            except Exception as e:
-                self.log(f"Err fetching content: {e}")
-                break
+                        current_url = None
+            else:
+                current_url = None
+
         return text_buffer
 
 
@@ -479,28 +514,38 @@ def start_download():
     if not url:
         return jsonify({'error': 'URL is required'}), 400
 
-    # Concurrency Check
+    # 2. Concurrency Control & Rejoin Logic
     with active_urls_lock:
         if url in active_urls:
-             return jsonify({'error': '该小说正在下载中，请勿重复提交！'}), 409
+            # Try to find the existing running task for this URL
+            for tid, tdata in tasks.items():
+                if tdata.get('url') == url and tdata['status'] in ['running', 'paused']:
+                    return jsonify({'task_id': tid, 'message': 'Rejoined existing task'})
+            
+            # If we are here, maybe it's in active_urls but not in running tasks (zombie?), clean it
+            active_urls.remove(url)
+
         active_urls.add(url)
 
     task_id = str(uuid.uuid4())
     
-    if CheyilDownloader.match(url):
-        downloader = CheyilDownloader(url, task_id)
-        downloader.session.headers.update(HEADERS)
-    elif QuanbenDownloader.match(url):
+    # Select Downloader
+    if 'quanben.io' in url:
         downloader = QuanbenDownloader(url, task_id)
+    elif 'cheyil.cc' in url:
+        downloader = CheyilDownloader(url, task_id)
     else:
         downloader = GenericDownloader(url, task_id)
 
     tasks[task_id] = {
+        'url': url,
         'status': 'running',
         'control': 'running',
         'percent': 0,
         'current': 0,
         'total': 0,
+        'success': 0,
+        'fail': 0,
         'log': 'Task Initialized...',
         'filename': None
     }
@@ -539,7 +584,8 @@ def control_task(action):
 def download_file(filename):
     path = os.path.join(DOWNLOAD_FOLDER, filename)
     if os.path.exists(path):
-        return send_file(path, as_attachment=True)
+        # Force octet-stream to prevent browser from previewing text
+        return send_file(path, as_attachment=True, mimetype='application/octet-stream')
     return "File not found", 404
 
 if __name__ == '__main__':

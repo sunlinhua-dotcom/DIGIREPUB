@@ -77,6 +77,16 @@
                 </div>
                 <span class="terminal-title">Console Output</span>
             </div>
+            <div class="action-area hidden" id="downloadActionArea">
+                <a id="finalDownloadLink" class="btn btn-success" download>
+                    <span class="icon">📥</span>
+                    <span class="btn-text">保存到文件</span>
+                </a>
+                <button class="btn btn-secondary" onclick="resetBtn()">
+                    <span class="icon">🔄</span>
+                    <span class="btn-text">下新的</span>
+                </button>
+            </div>
             <div class="terminal-body" id="logOutput">
                 <div class="log-line">Waiting for task...</div>
             </div>

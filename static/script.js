@@ -84,7 +84,10 @@ function pollProgress() {
             document.getElementById('percentText').textContent = percent + '%';
 
             if (total > 0) {
-                document.getElementById('progressStats').textContent = `${current} / ${total} 章`;
+                const success = data.success || 0;
+                const fail = data.fail || 0;
+                document.getElementById('progressStats').innerHTML =
+                    `${current} / ${total} <span style="color:#10b981;margin-left:8px">✔${success}</span> <span style="color:#ef4444">✘${fail}</span>`;
             }
 
             // Update Log - Fix Duplicates Check
@@ -98,13 +101,28 @@ function pollProgress() {
                 }
             }
 
-            // Update Button State from Backend if needed
+            // Update Button State
             if (data.control === 'paused') {
                 document.getElementById('pauseBtn').classList.add('hidden');
                 document.getElementById('resumeBtn').classList.remove('hidden');
+
+                // Show Partial Download Link
+                if (data.filename) {
+                    const linkArea = document.getElementById('downloadActionArea');
+                    const linkBtn = document.getElementById('finalDownloadLink');
+                    linkBtn.href = `/api/download/${data.filename}`;
+                    linkBtn.querySelector('.btn-text').textContent = '保存当前进度';
+                    linkArea.classList.remove('hidden');
+                }
+
             } else {
                 document.getElementById('resumeBtn').classList.add('hidden');
                 document.getElementById('pauseBtn').classList.remove('hidden');
+
+                // Hide Download Link if running (unless done, which is handled below)
+                if (data.status !== 'done') {
+                    document.getElementById('downloadActionArea').classList.add('hidden');
+                }
             }
 
             // Check Status
@@ -126,9 +144,17 @@ function pollProgress() {
 
 function updateLog(msg) {
     const logBox = document.getElementById('logOutput');
+    const newMsg = `> ${msg}`;
+
+    // Feature: Consolidate "Scanning" logs to prevent spam
+    if (msg.includes('(扫描中...)') && logBox.lastElementChild && logBox.lastElementChild.textContent.includes('(扫描中...)')) {
+        logBox.lastElementChild.textContent = newMsg;
+        return;
+    }
+
     const div = document.createElement('div');
     div.classList.add('log-line');
-    div.textContent = `> ${msg}`;
+    div.textContent = newMsg;
     logBox.appendChild(div);
     logBox.scrollTop = logBox.scrollHeight;
 }
