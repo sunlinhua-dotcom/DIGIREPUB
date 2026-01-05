@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Novel Downloader</title>
+    <!-- PWA Settings -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="小说下载">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2232/2232688.png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <div class="container">
+        <header>
+            <div class="logo">ANTIGRAVITY<span>DL</span></div>
+            <p class="subtitle">通用全本小说下载器</p>
+        </header>
+
+        <div class="card glass-panel">
+            <div class="input-group">
+                <input type="text" id="urlInput" placeholder="在此粘贴小说目录页链接..." autocomplete="off">
+                <button id="downloadBtn" onclick="startDownload()">
+                    <span class="btn-text">立即下载</span>
+                    <span class="loader hidden"></span>
+                </button>
+            </div>
+
+            <div class="progress-area hidden" id="progressArea">
+                <div class="progress-info">
+                    <span id="statusText">正在初始化...</span>
+                    <span>
+                        <span id="progressStats" style="margin-right: 1rem; color: #fff;"></span>
+                        <span id="percentText">0%</span>
+                    </span>
+                </div>
+                <div class="progress-bar-track">
+                    <div class="progress-bar-fill" id="progressBar"></div>
+                </div>
+
+                <div class="control-area hidden" id="controlArea" style="margin-top: 1rem; display: flex; gap: 10px;">
+                    <button id="pauseBtn" onclick="controlTask('pause')"
+                        style="background: #eab308; min-width: auto; padding: 0.5rem 1rem; font-size: 0.9rem;">
+                        暂停
+                    </button>
+                    <button id="resumeBtn" onclick="controlTask('resume')" class="hidden"
+                        style="background: #22c55e; min-width: auto; padding: 0.5rem 1rem; font-size: 0.9rem;">
+                        继续
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="terminal-window hidden" id="terminalWindow">
+            <div class="terminal-header">
+                <div class="dots">
+                    <span class="dot red"></span>
+                    <span class="dot yellow"></span>
+                    <span class="dot green"></span>
+                </div>
+                <span class="terminal-title">Console Output</span>
+            </div>
+            <div class="terminal-body" id="logOutput">
+                <div class="log-line">Waiting for task...</div>
+            </div>
+        </div>
+
+        <div id="downloadActionArea" class="hidden">
+            <a href="#" id="finalDownloadLink" class="download-btn-large" target="_blank">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 16L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                    <path d="M8 12L12 16L16 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                    <path d="M4 20H20" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                </svg>
+                保存 TXT 文件
+            </a>
+        </div>
+
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+
+</html>
