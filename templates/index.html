@@ -1,23 +1,22 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BRIGHT305 万能小说下载</title>
-    <!-- PWA Settings -->
-    <link rel="manifest" href="/static/manifest.json">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="小说下载">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2232/2232688.png">
+<title>BRIGHT305 | 万能小说下载</title>
+<!-- Force Cache Busting -->
+<link rel="stylesheet" href="/static/style.css?v=4.6">
+<link rel="manifest" href="/static/manifest.json?v=4.6">
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600;800&display=swap"
-        rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css">
+<!-- iOS Meta Tags -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bright305">
+<link rel="apple-touch-icon" href="https://r2.erweima.ai/img/uncropped_2760f38b2e3532470126588f01b70c32.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600;800&display=swap"
+    rel="stylesheet">
 </head>
 
 <body>
@@ -37,76 +36,108 @@
             </div>
         </header>
 
-        <div class="card glass-panel">
-            <div class="input-group">
-                <input type="text" id="urlInput" placeholder="在此粘贴小说目录页链接..." autocomplete="off">
-                <button id="downloadBtn" onclick="startDownload()">
-                    <span class="btn-text">立即下载</span>
-                    <span class="loader hidden"></span>
-                </button>
+        <div class="main-grid">
+            <!-- Left Column: Search & Discovery -->
+            <div class="card glass-panel" style="animation: fadeInUp 0.5s ease;">
+                <h3 style="margin-bottom: 1rem; color: #fff; font-size: 1.1rem;">🔍 搜索书籍 / 粘贴链接</h3>
+                <div class="input-group">
+                    <input type="text" id="urlInput" placeholder="输入书名 或 粘贴目录页链接..." autocomplete="off"
+                        onkeydown="handleInputKey(event)">
+                    <button id="downloadBtn" onclick="handleMainAction()">
+                        <span class="btn-text">Go</span>
+                        <span class="loader hidden"></span>
+                    </button>
+                </div>
+
+                <!-- Search Results Area -->
+                <div id="searchResults" class="hidden" style="margin-top: 1rem; animation: fadeIn 0.3s;">
+                    <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 12px; position: relative;">
+                        <h3
+                            style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 0.5rem; display: flex; justify-content: space-between;">
+                            <span>搜索结果</span>
+                            <span style="font-size: 1.2rem; cursor: pointer;" onclick="closeSearch()">×</span>
+                        </h3>
+                        <div id="searchLogs"
+                            style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.5rem; max-height: 80px; overflow-y: auto;">
+                        </div>
+
+                        <!-- Compatibility Wrapper -->
+                        <div id="finalResults" class="hidden"></div>
+
+                        <div id="resultsList" style="max-height: 400px; overflow-y: auto;">
+                            <!-- JS matches will go here -->
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class="progress-area hidden" id="progressArea">
-                <div class="progress-info">
-                    <span id="statusText">正在初始化...</span>
-                    <span>
-                        <span id="progressStats" style="margin-right: 1rem; color: #fff;"></span>
-                        <span id="percentText">0%</span>
-                    </span>
-                </div>
-                <div class="progress-bar-track">
-                    <div class="progress-bar-fill" id="progressBar"></div>
+            <!-- Right Column: Tasks & Terminal -->
+            <div class="card glass-panel" style="animation: fadeInUp 0.6s ease;">
+                <h3 style="margin-bottom: 1rem; color: #fff; font-size: 1.1rem;">🚀 下载任务</h3>
+
+                <div class="progress-area hidden" id="progressArea">
+                    <div class="progress-info">
+                        <span id="statusText">准备就绪...</span>
+                        <span>
+                            <span id="progressStats" style="margin-right: 1rem; color: #fff;"></span>
+                            <span id="percentText">0%</span>
+                        </span>
+                    </div>
+                    <div class="progress-bar-track">
+                        <div class="progress-bar-fill" id="progressBar"></div>
+                    </div>
+
+                    <div class="control-area hidden" id="controlArea"
+                        style="margin-top: 1rem; display: flex; gap: 10px;">
+                        <button id="pauseBtn" onclick="controlTask('pause')"
+                            style="background: #eab308; min-width: auto; padding: 0.5rem 1rem; font-size: 0.9rem;">
+                            暂停
+                        </button>
+                        <button id="resumeBtn" onclick="controlTask('resume')" class="hidden"
+                            style="background: #22c55e; min-width: auto; padding: 0.5rem 1rem; font-size: 0.9rem;">
+                            继续
+                        </button>
+                    </div>
+
+                    <!-- New Action Area (Hidden by default) -->
+                    <div class="action-grid hidden" id="downloadActionArea">
+                        <a id="finalDownloadLink" class="action-btn primary-action" download>
+                            <span class="icon">📥</span>
+                            <span>保存 TXT</span>
+                        </a>
+
+                        <button id="retryBtn" class="action-btn warning-action hidden" onclick="retryFailed()">
+                            <span class="icon">🩹</span>
+                            <span>补录漏章</span>
+                        </button>
+
+                        <button class="action-btn secondary-action" onclick="resetBtn()">
+                            <span class="icon">🔄</span>
+                            <span>下新的</span>
+                        </button>
+                    </div>
                 </div>
 
-                <div class="control-area hidden" id="controlArea" style="margin-top: 1rem; display: flex; gap: 10px;">
-                    <button id="pauseBtn" onclick="controlTask('pause')"
-                        style="background: #eab308; min-width: auto; padding: 0.5rem 1rem; font-size: 0.9rem;">
-                        暂停
-                    </button>
-                    <button id="resumeBtn" onclick="controlTask('resume')" class="hidden"
-                        style="background: #22c55e; min-width: auto; padding: 0.5rem 1rem; font-size: 0.9rem;">
-                        继续
-                    </button>
+                <div class="terminal-window" id="terminalWindow" style="margin-top: 1rem; height: 300px;">
+                    <div class="terminal-header">
+                        <div class="dots">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <span class="terminal-title">任务日志 (Console)</span>
+                    </div>
+                    <div class="terminal-body" id="logOutput">
+                        <div class="log-line">> 系统就绪，请在左侧搜索或输入链接...</div>
+                    </div>
                 </div>
-
-                <!-- New Action Area (Hidden by default) -->
-                <div class="action-grid hidden" id="downloadActionArea">
-                    <a id="finalDownloadLink" class="action-btn primary-action" download>
-                        <span class="icon">📥</span>
-                        <span>保存 TXT</span>
-                    </a>
-
-                    <button id="retryBtn" class="action-btn warning-action hidden" onclick="retryFailed()">
-                        <span class="icon">🩹</span>
-                        <span>补录漏章</span>
-                    </button>
-
-                    <button class="action-btn secondary-action" onclick="resetBtn()">
-                        <span class="icon">🔄</span>
-                        <span>下新的</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <div class="terminal-window hidden" id="terminalWindow">
-            <div class="terminal-header">
-                <div class="dots">
-                    <span class="dot red"></span>
-                    <span class="dot yellow"></span>
-                    <span class="dot green"></span>
-                </div>
-                <span class="terminal-title">Console Output</span>
-            </div>
-            <div class="terminal-body" id="logOutput">
-                <div class="log-line">Waiting for task...</div>
             </div>
         </div>
 
 
     </div>
 
-    <script src="/static/script.js"></script>
+    <script src="/static/script.js?v=4.7"></script>
 </body>
 
 </html>
