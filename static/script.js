@@ -208,6 +208,9 @@ function startDownload() {
         return;
     }
 
+    // Stop search polling if active to prevent log pollution
+    if (searchPollInterval) clearInterval(searchPollInterval);
+
     // Reset UI
     downloadBtn.disabled = true;
     document.querySelector('#downloadBtn .btn-text').textContent = '启动中...';
