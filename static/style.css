@@ -128,6 +128,18 @@ body {
     border-radius: 36px;
     padding: 2rem;
     box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.8);
+    /* Prevent Flex/Grid blowout */
+    min-width: 0;
+    width: 100%;
+}
+
+.log-line {
+    margin-bottom: 4px;
+    opacity: 0.8;
+    /* Force wrap long URLs/Text */
+    overflow-wrap: break-word;
+    word-break: break-all;
+    white-space: pre-wrap;
 }
 
 .input-group {
